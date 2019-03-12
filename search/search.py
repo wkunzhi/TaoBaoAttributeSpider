@@ -16,64 +16,100 @@ from config import *
 
 class Search(object):
     """
-    搜索类
+    Search Class
     """
     chrome_options = webdriver.ChromeOptions()
 
     # 拦截端口
-    # chrome_options.add_argument("--proxy-server=http://127.0.0.1:8080")
+    chrome_options.add_argument("--proxy-server=http://127.0.0.1:8080")
     browser = webdriver.Chrome(executable_path='./utils/chromedriver', chrome_options=chrome_options)
 
     wait = WebDriverWait(browser, 10, 0.1)
 
     def start(self):
         try:
-            total = self.search()
-            total = int(re.compile('(\d+)').search(total).group(1))
-            for i in range(2, total + 1):
-                self.next_page(i)
+            class_type = CLASS_TYPE
+
+            with open('path.txt', 'r', encoding='utf-8') as f:
+                info_list = f.read().split(',')
+                if len(info_list) == 4:
+                    total = self.search(class_type, info_list[0], info_list[1], info_list[2])
+                elif len(info_list) == 3:
+                    total = self.search(class_type, info_list[0], info_list[1])
+
+            # # 执行筛选
+            # total = int(re.compile('(\d+)').search(total).group(1))
+            # for i in range(2, total + 1):
+            #     self.next_page(i)
         except Exception:
-            print('出错啦')
+            print('fuck me!')
             self.browser.close()
         finally:
             self.browser.close()
 
     def search(self):
-        print('正在搜索')
+        """
+        search for baby
+        :param class_type: type
+        :param first: class key
+        :param second:  second class key
+        :param thirdly:  thirdly class key
+        :return:
+        """
+        print('search for .....')
         try:
-            # 正式入口
             self.browser.get('https://upload.taobao.com/auction/publish/publish.htm')
-
-            open_box = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, '//*[@id="cc-tree-gname784"]'))
+            first_input = self.wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//*[@id="J_OlCascadingList"]/li[1]/div[1]/input'))
             )
-            open_box.click()
-            total = self.wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, '#mainsrp-pager > div > div > div > div.total')))
-            self.get_products()
-            return total.text
+            first_input.send_keys('女装/女士精品')
+            first_choice = self.wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//*[@class="cc-cbox-hit"][1]'))
+            )
+            first_choice.click()
+            second_box = self.wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//*[@id="J_OlCascadingList"]/li[2]/div[2]/ul'))
+            )
+            btn = self.browser.find_element_by_id('J_CatePubBtn').is_enabled()
+            if btn:
+                # 已经选到底了，采集品牌
+                print('准备采集品牌')
+                second_list = []
+                for i in second_box.text.split('\n'):
+                    if not i.encode('UTF-8').isalpha():
+                        second_list.append(i)
+                
+            else:
+                total = self.wait.until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#mainsrp-pager > div > div > div > div.total')))
+                self.get_products()
+                # return total.text
+
+                # self.go_baby_html(type_title.text)
+            import time
+            time.sleep(60)
         except TimeoutException:
             return self.search()
 
-    def next_page(self, page_number):
-        print('正在翻页', page_number)
-        try:
-            input_box = self.wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, '#mainsrp-pager > div > div > div > div.form > input'))
-            )
-            submit = self.wait.until(EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, '#mainsrp-pager > div > div > div > div.form > span.btn.J_Submit')))
-            input_box.clear()
-            input_box.send_keys(page_number)
-            submit.click()
-            self.wait.until(EC.text_to_be_present_in_element(
-                (By.CSS_SELECTOR, '#mainsrp-pager > div > div > div > ul > li.item.active > span'), str(page_number)))
-            self.get_products()
-        except TimeoutException:
-            self.next_page(page_number)
+    def go_baby_html(self, type_title):
+        """
+        get baby class
+        :return:
+        """
+        pass
+
+    def back_page(self):
+        """
+        back page
+        :return:
+        """
+        self.browser.back()
 
     def get_products(self):
-        """解析数据"""
+        """parse html"""
         self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '#mainsrp-itemlist .items .item')))
         html = self.browser.page_source
         doc = pq(html)
@@ -93,8 +129,39 @@ class Search(object):
 
     def save_to_mysql(self, product):
         """
-        插入到数据库mysql
-        :param product:
+        save to mysql
+        :param product: html content
+        :return:
+        """
+        image = product.get('image')
+        price = product.get('price')
+        goods_url = product.get('goods_url')
+        pay_num = product.get('pay_num')
+        title = product.get('title')
+        shop = product.get('shop')
+        shop_url = product.get('shop_url')
+        location = product.get('location')
+
+        # 数据库操作  【这里偷懒了，可以把这一段放在外面，不然每次插入都要链接数据库影响效率】
+        db = pymysql.connect(host=MYSQL_HOST, user=MYSQL_USER,
+                             password=MYSQL_PASSWORD, db=MYSQL_DB_NAME, port=MYSQL_PORT)
+        # 使用cursor()方法获取操作游标
+        cur = db.cursor()
+        sql_insert = """insert into bg_temp_spider(select_key,image,price,goods_url,pay_num,title,shop,shop_url,location) values("%s","%s","%s","%s","%s","%s","%s","%s","%s")""" % (
+            self.key, image, price, goods_url, pay_num, title, shop, shop_url, location)
+        try:
+            cur.execute(sql_insert)
+            db.commit()
+        except Exception as e:
+            print('错误回滚')
+            db.rollback()
+        finally:
+            db.close()
+
+    def save_to_mysql_tb_baby(self, product):
+        """
+        save to mysql
+        :param product: html content
         :return:
         """
         image = product.get('image')

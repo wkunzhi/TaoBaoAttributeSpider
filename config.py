@@ -9,3 +9,6 @@ MYSQL_PASSWORD = ""
 MYSQL_DB_NAME = "taobao"
 MYSQL_PORT = 3306
 
+# 采集类目
+CLASS_TYPE = '服装鞋包'
+
